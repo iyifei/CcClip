@@ -97,11 +97,13 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
     };
 
     // 图片轨道（每段字幕可能有多张图片）
+    // 优先使用 thumbUrl（后端缩略图接口），避免 COEP 跨域问题
     if (segment.images && segment.images.length > 0) {
       const imgDuration = (segEnd - segStart) / segment.images.length;
       segment.images.forEach((img, imgIndex) => {
         const imgStart = segStart + imgIndex * imgDuration;
         const imgEnd = imgStart + imgDuration;
+        const thumbUrl = img.thumbUrl || img.previewThumbUrl || img.imageUrl || '';
 
         const imageTrack: ImageTractItem = {
           id: getId('image'),
@@ -112,12 +114,12 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
           frameCount: Math.floor(imgDuration * baseFps),
           offsetL: 0,
           offsetR: 0,
-          source: img.imageUrl,
+          source: thumbUrl,
           format: 'jpg',
           width: preview.videoWidth || 1080,
           height: preview.videoHeight || 1920,
           sourceFrame: 1,
-          cover: img.imageUrl
+          cover: thumbUrl
         };
         imageTracks.push(imageTrack);
 
@@ -128,7 +130,8 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
           scale: 100,
           opacity: 100,
           imageId: img.id || 0,
-          imageUrl: img.imageUrl
+          imageUrl: img.imageUrl,
+          thumbUrl
         };
       });
     }

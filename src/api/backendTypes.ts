@@ -32,11 +32,14 @@ export interface TaskProgressResult {
 }
 
 /**
- * 片段图片
+ * 片段图片（与后端 ImageThumb 对齐）
  */
 export interface SegmentImage {
   id: number;
   imageUrl: string;
+  thumbUrl?: string;
+  previewThumbUrl?: string;
+  localPath?: string;
   imageCategoryName?: string;
 }
 
