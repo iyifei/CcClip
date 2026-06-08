@@ -66,7 +66,9 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
   const textTracks: TextTractItem[] = [];
   const imageTracks: ImageTractItem[] = [];
 
-  preview.segments.forEach((segment, segmentIndex) => {
+  const segments = preview.segments || [];
+
+  segments.forEach((segment, segmentIndex) => {
     // 字幕轨道
     const textTrack: TextTractItem = {
       id: getId('text'),
@@ -177,7 +179,7 @@ export function toConfirmPayload(
   // 找到图片轨道
   const imageTrackLine = trackList.find(t => t.type === 'image');
 
-  if (!textTrackLine) {
+  if (!textTrackLine || !textTrackLine.list) {
     return { taskUuid, videoTitle };
   }
 
@@ -193,7 +195,7 @@ export function toConfirmPayload(
 
     // 找到在该时间段内的图片
     const segmentImages: SegmentImage[] = [];
-    if (imageTrackLine) {
+    if (imageTrackLine && imageTrackLine.list) {
       const imageTracks = imageTrackLine.list as ImageTractItem[];
       imageTracks
         .filter(img => {
