@@ -1,4 +1,7 @@
 <template>
+  <!-- AI 加载覆盖层 -->
+  <AiLoadingOverlay v-if="showLoadingOverlay" />
+
   <HeaderContainer />
   <div class="flex flex-1 overflow-hidden">
     <ResourcesContainer />
@@ -15,7 +18,7 @@
 </template>
 
 <script setup lang="ts">
-  import { ref, onMounted, watch } from 'vue';
+  import { ref, onMounted, watch, computed } from 'vue';
   import { useRoute } from 'vue-router';
   import AttributeContainer from '@/components/container/AttributeContainer.vue';
   import CanvasPlayer from '@/components/container/CanvasPlayer.vue';
@@ -23,15 +26,26 @@
   import ResourcesContainer from '@/components/container/ResourcesContainer.vue';
   import TrackContainer from '@/components/container/TrackContainer.vue';
   import ExportDialog from '@/components/export/ExportDialog.vue';
+  import AiLoadingOverlay from '@/components/ai-panel/AiLoadingOverlay.vue';
   import { useProjectState } from '@/stores/projectState';
   import { startFromArticle } from '@/services/aiGenerationService';
+  import { useTrackState } from '@/stores/trackState';
   import { initHotKey } from '@/utils/initHotKey';
 
   const route = useRoute();
   const projectState = useProjectState();
+  const trackState = useTrackState();
   const showExportDialog = ref(false);
 
   initHotKey();
+
+  /** 是否显示加载覆盖层 */
+  const showLoadingOverlay = computed(() => {
+    const s = projectState.status;
+    // 数据已加载到轨道后隐藏
+    if (s === 'waiting_confirm' && trackState.trackList.length > 0) return false;
+    return s === 'submitting' || s === 'processing' || s === 'waiting_confirm' || s === 'failed';
+  });
 
   onMounted(async() => {
     const articleId = route.query.articleId as string;

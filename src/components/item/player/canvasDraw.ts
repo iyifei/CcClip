@@ -36,7 +36,12 @@ export class CanvasPlayer {
     }
     async initPlayer() {
         this.loading.value = true;
-        if (this.ffmpeg.isLoaded.value && this.playerStore.ingLoadingCount === 0) {
+        // FFmpeg 不可用时（iframe 嵌入场景），跳过 canvas 绘制但解除 loading 状态
+        if (!this.ffmpeg.isLoaded.value) {
+            this.loading.value = false;
+            return;
+        }
+        if (this.playerStore.ingLoadingCount === 0) {
             this.drawCanvas();
             this.loading.value = false;
         }
@@ -97,7 +102,26 @@ export class CanvasPlayer {
     }
     // 绘制
     async drawCanvas() {
-        if (!this.ffmpeg.isLoaded.value || this.playerStore.ingLoadingCount !== 0) return;
+        if (this.playerStore.ingLoadingCount !== 0) return;
+
+        // FFmpeg 不可用时，绘制背景色和提示文字
+        if (!this.ffmpeg.isLoaded.value) {
+            this.clearCanvas();
+            if (this.renderContext) {
+                this.renderContext.fillStyle = '#666';
+                this.renderContext.font = this.getFont(16);
+                this.renderContext.textAlign = 'center';
+                this.renderContext.textBaseline = 'middle';
+                this.renderContext.fillText(
+                    'FFmpeg 未加载，视频预览不可用',
+                    this.canvasSize.width / 2,
+                    this.canvasSize.height / 2
+                );
+            }
+            await this.drawToPlayerCanvas();
+            return;
+        }
+
         const videoList: Array<any> = [];
         const otherList: Array<any> = [];
         this.playerStore.playTargetTrackMap.forEach((trackItem: Record<string, any>, id: number) => {

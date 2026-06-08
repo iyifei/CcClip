@@ -9,6 +9,7 @@ declare module '@vue/runtime-core' {
   export interface GlobalComponents {
     AddIcon: typeof import('./src/components/icons/AddIcon.vue')['default']
     AiGenerationPanel: typeof import('./src/components/ai-panel/AiGenerationPanel.vue')['default']
+    AiLoadingOverlay: typeof import('./src/components/ai-panel/AiLoadingOverlay.vue')['default']
     AttrContainer: typeof import('./src/components/item/formItem/AttrContainer.vue')['default']
     AttrEmptyIcon: typeof import('./src/components/icons/AttrEmptyIcon.vue')['default']
     AttributeContainer: typeof import('./src/components/container/AttributeContainer.vue')['default']
