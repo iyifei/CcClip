@@ -165,15 +165,17 @@ class StepManager {
 /**
  * 获取Value对应的Object键
  * 对于对象解构数据，比较其内存地址，而非值
+ * 增加递归深度限制，防止深层嵌套或循环引用导致栈溢出
  * */
-function getStoreKey(state: StateTree, value: any, name:string[] = []): string {
+function getStoreKey(state: StateTree, value: any, name: string[] = [], depth = 0): string {
+    if (depth > 8) return '';
     const dataKey = findKey(state, item => {
         if (item === value) {
             return true;
-        } else if (isObject(item)) {
-            return getStoreKey(item, value, name);
         } else if (Array.isArray(item)) {
             return item.includes(value);
+        } else if (isObject(item)) {
+            return getStoreKey(item, value, name, depth + 1);
         } else {
             return item === value;
         }
@@ -203,13 +205,18 @@ const stepManagerIns = new StepManager();
 
 /**
  * 判断数据是否被监控
+ * 增加 try-catch 防止状态遍历时异常导致编辑器崩溃
  * */
 function subscribeHandler(mutation: { events: Record<string, any>, storeId: string }, state: StateTree) {
-    const rowState = toRaw(state);
-    const { events: { target, newValue, oldValue, key }, storeId } = mutation;
-    const dataKey = getStoreKey(rowState, target) + (key ? `.${key}` : '');
-    if (dataKey && WatchKeys[storeId]?.find((watchKey: string) => dataKey.indexOf(watchKey) > -1)) {
-        stepManagerIns.addStep(storeId, dataKey, newValue, oldValue);
+    try {
+        const rowState = toRaw(state);
+        const { events: { target, newValue, oldValue, key }, storeId } = mutation;
+        const dataKey = getStoreKey(rowState, target) + (key ? `.${key}` : '');
+        if (dataKey && WatchKeys[storeId]?.find((watchKey: string) => dataKey.indexOf(watchKey) > -1)) {
+            stepManagerIns.addStep(storeId, dataKey, newValue, oldValue);
+        }
+    } catch (e) {
+        // 忽略状态追踪过程中的错误，不影响编辑器正常运行
     }
 }
 
