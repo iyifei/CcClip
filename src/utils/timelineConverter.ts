@@ -66,17 +66,21 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
   const textTracks: TextTractItem[] = [];
   const imageTracks: ImageTractItem[] = [];
 
-  const segments = preview.segments || [];
+  const segments = preview.timelineSegments || [];
 
   segments.forEach((segment, segmentIndex) => {
     // 字幕轨道
+    const text = segment.subtitleText || '';
+    const segStart = segment.startTime;
+    const segEnd = segment.endTime;
+
     const textTrack: TextTractItem = {
       id: getId('text'),
       type: 'text',
-      name: segment.text.substring(0, 20),
-      start: Math.floor(segment.start * baseFps),
-      end: Math.floor(segment.end * baseFps),
-      frameCount: Math.floor((segment.end - segment.start) * baseFps),
+      name: text.substring(0, 20),
+      start: Math.floor(segStart * baseFps),
+      end: Math.floor(segEnd * baseFps),
+      frameCount: Math.floor((segEnd - segStart) * baseFps),
       offsetL: 0,
       offsetR: 0,
       cover: '',
@@ -86,23 +90,23 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
 
     // 为字幕轨道设置属性（包含样式信息）
     trackAttrMap[textTrack.id] = {
-      content: segment.text,
+      content: text,
       templateId: 0,
       // 默认标题样式（如果是第一段，应用多行标题样式）
-      ...(segmentIndex === 0 ? { titleStyles: getTitleLineStylesForSegment(segment.text) } : {})
+      ...(segmentIndex === 0 ? { titleStyles: getTitleLineStylesForSegment(text) } : {})
     };
 
     // 图片轨道（每段字幕可能有多张图片）
-    if (segment.images.length > 0) {
-      const imgDuration = (segment.end - segment.start) / segment.images.length;
+    if (segment.images && segment.images.length > 0) {
+      const imgDuration = (segEnd - segStart) / segment.images.length;
       segment.images.forEach((img, imgIndex) => {
-        const imgStart = segment.start + imgIndex * imgDuration;
+        const imgStart = segStart + imgIndex * imgDuration;
         const imgEnd = imgStart + imgDuration;
 
         const imageTrack: ImageTractItem = {
           id: getId('image'),
           type: 'image',
-          name: `image-${img.id}`,
+          name: `image-${img.id || imgIndex}`,
           start: Math.floor(imgStart * baseFps),
           end: Math.floor(imgEnd * baseFps),
           frameCount: Math.floor(imgDuration * baseFps),
@@ -110,8 +114,8 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
           offsetR: 0,
           source: img.imageUrl,
           format: 'jpg',
-          width: preview.videoWidth,
-          height: preview.videoHeight,
+          width: preview.videoWidth || 1080,
+          height: preview.videoHeight || 1920,
           sourceFrame: 1,
           cover: img.imageUrl
         };
@@ -123,7 +127,7 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
           y: 0,
           scale: 100,
           opacity: 100,
-          imageId: img.id,
+          imageId: img.id || 0,
           imageUrl: img.imageUrl
         };
       });

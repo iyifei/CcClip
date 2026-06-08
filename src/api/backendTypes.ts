@@ -41,27 +41,27 @@ export interface SegmentImage {
 }
 
 /**
- * 时间线段
+ * 时间线段（与后端 TimelineSegment 对齐）
  */
 export interface TimelineSegment {
   index: number;
-  start: number;
-  end: number;
-  text: string;
+  startTime: number;
+  endTime: number;
+  subtitleText: string;
   images: SegmentImage[];
 }
 
 /**
- * 时间线预览响应
+ * 时间线预览响应（与后端 TimelinePreviewResult 对齐）
  */
 export interface TimelinePreviewResult {
-  taskUuid: string;
+  taskUuid?: string;
   audioFileName: string;
   audioDuration: number;
-  audioUrl: string;
-  segments: TimelineSegment[];
-  videoWidth: number;
-  videoHeight: number;
+  audioUrl?: string;
+  timelineSegments: TimelineSegment[];
+  videoWidth?: number;
+  videoHeight?: number;
 }
 
 /**
