@@ -53,7 +53,13 @@ export function downloadFileUrl(href: string, fileName: string) {
     downloadElement.href = '';
 }
 export function computedItemShowArea(trackItem: Record<string, any>, canvasSize: { width: number, height: number }, trackAttr: Record<string, any>) {
-    let { left = 0, top = 0, scale = 100, text, fontSize } = trackAttr;
+    let {
+        left = 0,
+        top = 0,
+        scale = 100,
+        text = trackAttr?.content || '',
+        fontSize = 40
+    } = trackAttr || {};
     const { width, height, type } = trackItem;
     const { width: playerW, height: playerH } = canvasSize;
     let defaultW = playerW;
@@ -70,11 +76,14 @@ export function computedItemShowArea(trackItem: Record<string, any>, canvasSize:
     }
     if (type === 'image') {
         defaultW = width;
-        defaultH = width;
+        defaultH = height;
     }
     if (type === 'text') {
-        defaultW = text.length * fontSize;
-        defaultH = fontSize * 1.2;
+        const textWidth = (text || '').length * fontSize;
+        const maxTextWidth = playerW * 0.9;
+        const lineCount = Math.max(1, Math.ceil(textWidth / maxTextWidth));
+        defaultW = Math.min(textWidth, maxTextWidth);
+        defaultH = fontSize * 1.2 * lineCount;
     }
     // 由默认位置计算偏移缩放位置
     const scaleW = Math.floor(defaultW * scale / 100);

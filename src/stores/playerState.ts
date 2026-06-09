@@ -16,9 +16,11 @@ export const usePlayerState = defineStore('playerState', () => {
     playerHeight: 0
   });
   const existVideo = ref(false);
+  const existImage = ref(false);
   const audioPlayData = ref<TrackItem[]>([]); // 全局音频，因为存在音频混合，所以将所有音频混合成一个
   function mergeVideo() {
     let existV = false;
+    let existI = false;
     const endList: number[] = [0];
     const vaList = <TrackItem[]>[];
     let playerWidth = 0; // 视频元素最大宽度
@@ -36,6 +38,13 @@ export const usePlayerState = defineStore('playerState', () => {
           }
           existV = true;
         }
+        if (trackLine.type === 'image') {
+          existI = true;
+          if (playerHeight === 0 && playerWidth === 0) {
+            playerWidth = Math.max(playerWidth, (trackItem as any).width || 1080);
+            playerHeight = Math.max(playerHeight, (trackItem as any).height || 1920);
+          }
+        }
         if (!silent && (trackLine.type === 'video' || trackLine.type === 'audio')) {
           vaList.push(trackItem);
           audioStart = Math.min(trackItem.start, audioStart);
@@ -50,6 +59,7 @@ export const usePlayerState = defineStore('playerState', () => {
     playerConfig.playerWidth = playerWidth;
     playerConfig.playerHeight = playerHeight;
     existVideo.value = existV;
+    existImage.value = existI;
   }
   watch([() => trackStore.trackList, attrStore.trackAttrMap], debounce(() => mergeVideo(), 30), {
     immediate: true,
@@ -68,6 +78,7 @@ export const usePlayerState = defineStore('playerState', () => {
     playTargetTrackMap,
     audioPlayData,
     existVideo,
+    existImage,
     ...toRefs(playerConfig)
   };
 });

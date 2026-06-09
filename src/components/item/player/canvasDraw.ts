@@ -14,6 +14,7 @@ export class CanvasPlayer {
     attrStore: Record<string, any>;
     containerSize: Record<string, any>;
     ffmpeg: FFManager;
+    imageCache = new Map<string, Promise<HTMLImageElement>>();
     loading = ref(true);
     canvasSize = reactive({
         width: 0,
@@ -123,20 +124,29 @@ export class CanvasPlayer {
         }
 
         const videoList: Array<any> = [];
-        const otherList: Array<any> = [];
+        const imageList: Array<any> = [];
+        const overlayList: Array<any> = [];
+        const textList: Array<any> = [];
         this.playerStore.playTargetTrackMap.forEach((trackItem: Record<string, any>, id: number) => {
             if (this.attrStore.trackAttrMap[id]) {
                 const { type } = trackItem;
+                const drawTask = () => this.drawToRenderCanvas(trackItem, id, this.playerStore.playStartFrame);
                 if (isVideo(type)) {
-                    videoList.push(() => this.drawToRenderCanvas(trackItem, id, this.playerStore.playStartFrame));
+                    videoList.push(drawTask);
+                } else if (type === 'image') {
+                    imageList.push(drawTask);
+                } else if (type === 'text') {
+                    textList.push(drawTask);
                 } else {
-                    otherList.unshift(() => this.drawToRenderCanvas(trackItem, id, this.playerStore.playStartFrame));
+                    overlayList.push(drawTask);
                 }
             }
         });
         this.clearCanvas();
-        await videoList.reduce((chain, nextPromise) => chain.then(() => nextPromise()), Promise.resolve()); // 顺序绘制，保证视频在底部
-        await otherList.reduce((chain, nextPromise) => chain.then(() => nextPromise()), Promise.resolve());
+        await videoList.reduce((chain, nextPromise) => chain.then(() => nextPromise()).catch(() => {}), Promise.resolve());
+        await imageList.reduce((chain, nextPromise) => chain.then(() => nextPromise()).catch(() => {}), Promise.resolve());
+        await overlayList.reduce((chain, nextPromise) => chain.then(() => nextPromise()).catch(() => {}), Promise.resolve());
+        await textList.reduce((chain, nextPromise) => chain.then(() => nextPromise()).catch(() => {}), Promise.resolve());
         await this.drawToPlayerCanvas();
     }
     // 预渲染canvas先加载
@@ -148,31 +158,104 @@ export class CanvasPlayer {
                 resolve(true);
             } else if (isVideo(type)) {
                 const frame = Math.max(frameIndex - start + offsetL, 1); // 默认展示首帧
-                const blobFrame = this.ffmpeg.getFrame(name, frame);
-                createImageBitmap(blobFrame as Blob).then(imageBitmap => {
-                    this.renderContext?.drawImage(imageBitmap, 0, 0, sourceWidth, sourceHeight, drawL, drawT, drawW, drawH);
+                try {
+                    const blobFrame = this.ffmpeg.getFrame(name, frame);
+                    createImageBitmap(blobFrame as Blob).then(imageBitmap => {
+                        this.renderContext?.drawImage(imageBitmap, 0, 0, sourceWidth, sourceHeight, drawL, drawT, drawW, drawH);
+                        resolve(true);
+                    })
+.catch(() => resolve(true));
+                } catch {
                     resolve(true);
-                });
+                }
             } else if (type === 'image') {
-                const frame = Math.max(frameIndex - start, 1); // 默认展示首帧
-                const showFrame = frame % sourceFrame;
-                const blobFrame = this.ffmpeg.getGifFrame(name, showFrame === 0 ? sourceFrame : showFrame);
-                createImageBitmap(blobFrame as Blob).then(imageBitmap => {
-                    this.renderContext?.drawImage(imageBitmap, 0, 0, sourceWidth, sourceHeight, drawL, drawT, drawW, drawH);
+                this.loadImage(trackItem.source).then(image => {
+                    const sourceRatio = image.naturalWidth / image.naturalHeight;
+                    const targetRatio = drawW / drawH;
+                    let sourceX = 0;
+                    let sourceY = 0;
+                    let cropWidth = image.naturalWidth;
+                    let cropHeight = image.naturalHeight;
+                    if (sourceRatio > targetRatio) {
+                        cropWidth = image.naturalHeight * targetRatio;
+                        sourceX = (image.naturalWidth - cropWidth) / 2;
+                    } else {
+                        cropHeight = image.naturalWidth / targetRatio;
+                        sourceY = (image.naturalHeight - cropHeight) / 2;
+                    }
+                    this.renderContext?.drawImage(image, sourceX, sourceY, cropWidth, cropHeight, drawL, drawT, drawW, drawH);
                     resolve(true);
-                });
+                })
+.catch(() => resolve(true));
             } else if (type === 'text') {
-                let { text, color, fontSize } = this.attrStore.trackAttrMap[id];
+                const {
+                    text = this.attrStore.trackAttrMap[id]?.content || '',
+                    color = { r: 255, g: 255, b: 255, a: 1 },
+                    fontSize = 40,
+                    outlineColor = { r: 0, g: 0, b: 0, a: 0.9 },
+                    outlineWidth = 3
+                } = this.attrStore.trackAttrMap[id] || {};
                 if (this.renderContext) {
+                    if (!text) {
+                        resolve(true);
+                        return;
+                    }
                     this.renderContext.font = this.getFont(fontSize);
+                    this.renderContext.textAlign = 'center';
+                    this.renderContext.textBaseline = 'middle';
                     this.renderContext.fillStyle = `rgba(${color.r},${color.g},${color.b},${color.a})`;
-                    this.renderContext.fillText(text, drawL, drawT + fontSize);
+                    this.renderContext.strokeStyle = `rgba(${outlineColor.r},${outlineColor.g},${outlineColor.b},${outlineColor.a})`;
+                    this.renderContext.lineWidth = outlineWidth;
+                    this.renderContext.lineJoin = 'round';
+                    const centerX = drawL + drawW / 2;
+                    const centerY = drawT + drawH / 2;
+                    const lines = this.wrapText(text, this.canvasSize.width * 0.9);
+                    const lineHeight = fontSize * 1.2;
+                    const firstLineY = centerY - (lines.length - 1) * lineHeight / 2;
+                    lines.forEach((line, index) => {
+                        const lineY = firstLineY + index * lineHeight;
+                        if (outlineWidth > 0) {
+                            this.renderContext?.strokeText(line, centerX, lineY);
+                        }
+                        this.renderContext?.fillText(line, centerX, lineY);
+                    });
                 }
                 resolve(true);
             } else {
                 resolve(true);
             }
         });
+    }
+    wrapText(text: string, maxWidth: number) {
+        if (!this.renderContext || !text) return [];
+
+        const lines: string[] = [];
+        let currentLine = '';
+        for (const character of text) {
+            const nextLine = currentLine + character;
+            if (currentLine && this.renderContext.measureText(nextLine).width > maxWidth) {
+                lines.push(currentLine);
+                currentLine = character;
+            } else {
+                currentLine = nextLine;
+            }
+        }
+        if (currentLine) lines.push(currentLine);
+        return lines;
+    }
+    loadImage(source: string) {
+        const cached = this.imageCache.get(source);
+        if (cached) return cached;
+
+        const pending = new Promise<HTMLImageElement>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = reject;
+            image.src = source;
+        });
+        this.imageCache.set(source, pending);
+        pending.catch(() => this.imageCache.delete(source));
+        return pending;
     }
     // 将预渲染好的canvas进行渲播放器渲染
     async drawToPlayerCanvas() {

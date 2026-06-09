@@ -10,7 +10,12 @@
       {{ store.pageTitle }}
     </h2>
     <div class="flex w-1/3 flex-row-reverse pr-10 items-center">
-      <ElButton color="#626aef" disabled>
+      <ElButton
+        color="#626aef"
+        :disabled="exportDisabled"
+        :loading="projectState.isExporting"
+        @click="handleExport"
+      >
         <ElIcon :size="size" :color="color" class="mr-1">
           <Download />
         </ElIcon>
@@ -32,14 +37,33 @@
 <script setup lang="ts">
   import logoImage from '@/assets/ccLogo.png';
   import { ref, computed } from 'vue';
+  import { ElMessage } from 'element-plus';
   import { Download, Sunny, Moon } from '@element-plus/icons-vue';
   import { usePageState } from '@/stores/pageState';
+  import { useProjectState } from '@/stores/projectState';
+  import { startExport } from '@/services/exportService';
   const store = usePageState();
+  const projectState = useProjectState();
   const size = ref(14);
   const color = '#fff';
   const inner = ref(true);
+  const exportDisabled = computed(() => {
+    return !projectState.taskUuid
+      || projectState.status === 'submitting'
+      || projectState.status === 'processing'
+      || projectState.status === 'exporting';
+  });
   const switchClass = computed(() => ({
     '--el-switch-border-color': store.isDark ? '#4B5563' : '#D1D5DB',
     '--el-color-white': store.isDark ? '#F3F4F6' : '#374151'
   }));
+
+  async function handleExport() {
+    try {
+      await startExport();
+      ElMessage.success('已开始合成视频');
+    } catch (error: any) {
+      ElMessage.error(error.message || '导出失败');
+    }
+  }
 </script>

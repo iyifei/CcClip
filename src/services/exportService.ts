@@ -6,6 +6,7 @@
 import { confirmTimeline, getTaskProgress, getDownloadUrl } from '@/api/backendApi';
 import { useProjectState } from '@/stores/projectState';
 import { useTrackState } from '@/stores/trackState';
+import { useTrackAttrState } from '@/stores/trackAttribute';
 import { toConfirmPayload } from '@/utils/timelineConverter';
 import { notifyParent } from './aiGenerationService';
 
@@ -46,6 +47,7 @@ async function pollExportProgress() {
 export async function startExport(): Promise<void> {
   const projectState = useProjectState();
   const trackState = useTrackState();
+  const trackAttrState = useTrackAttrState();
 
   if (!projectState.taskUuid) {
     throw new Error('任务ID不存在');
@@ -58,7 +60,8 @@ export async function startExport(): Promise<void> {
     const payload = toConfirmPayload(
       trackState.trackList,
       projectState.taskUuid,
-      projectState.videoTitle
+      projectState.videoTitle,
+      trackAttrState.trackAttrMap
     );
 
     // 2. 提交确认

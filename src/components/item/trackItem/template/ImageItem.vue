@@ -9,10 +9,8 @@
 
 <script setup lang="ts">
   import trackCheckPlaying from './trackCheckPlaying';
-  import { ImageTractItem } from '@/stores/trackState';
-  import { PropType, watch, inject } from 'vue';
-  import { usePlayerState } from '@/stores/playerState';
-  import FFManager from '@/utils/ffmpegManager';
+  import type { ImageTractItem } from '@/stores/trackState';
+  import type { PropType } from 'vue';
   const props = defineProps({
     trackItem: {
       type: Object as PropType<ImageTractItem>,
@@ -23,29 +21,6 @@
         };
       }
     }
-  });
-  const store = usePlayerState();
-  const ffmpeg = inject('ffmpeg') as FFManager;
-  store.ingLoadingCount++;
-  async function initImage() {
-    const { name, source, format, width, height } = props.trackItem;
-    if (name && source && ffmpeg.isLoaded.value) {
-      const imageName = `${name}.${format}`;
-      // 写文件
-      await ffmpeg.writeFile(ffmpeg.pathConfig.resourcePath, imageName, source);
-      // gif抽帧
-      await ffmpeg.genFrame(name, format, {
-        w: width,
-        h: height
-      });
-      store.ingLoadingCount--;
-    }
-  }
-  watch(() => {
-    return props.trackItem.source && ffmpeg.isLoaded.value;
-  }, initImage, {
-    immediate: true,
-    flush: 'post'
   });
   trackCheckPlaying(props);
 </script>

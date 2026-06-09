@@ -38,6 +38,13 @@ export class Command { // 命令封装
                 fileIndex++;
             }
         });
+        // amix 至少需要 2 个输入，单轨直接复制
+        if (fileIndex <= 1) {
+            if (fileIndex === 0) {
+                return { commands: ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', '0.1', '-f', 'mp3', outPath] };
+            }
+            return { commands: [...inputFiles, '-c', 'copy', '-f', 'mp3', outPath] };
+        }
         filters.push(filterSort.join(''));
         const filterComplex = `${filters.join(';')}amix=inputs=${filterSort.length}:duration=longest:dropout_transition=0`;
         return {

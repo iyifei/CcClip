@@ -29,6 +29,14 @@ function getTitleLineStylesForSegment(text: string) {
   return lines.map((_, index) => getTitleLineStyle(index));
 }
 
+function withThumbWidth(url: string, width: number) {
+  if (!url || !url.includes('/api/image/thumb/')) return url;
+  const [path, query = ''] = url.split('?');
+  const params = new URLSearchParams(query);
+  params.set('width', String(width));
+  return `${path}?${params.toString()}`;
+}
+
 /**
  * 将后端 timeline-preview 数据转换为 CcClip 轨道格式
  * @param preview 后端时间线预览数据
@@ -42,11 +50,15 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
   const trackList: TrackLineItem[] = [];
   const trackAttrMap: Record<string, Record<string, any>> = {};
 
+  // 后端 audioFileName 可能已含扩展名，需要去掉以避免与 format 拼接时产生双扩展名
+  const rawAudioName = preview.audioFileName;
+  const audioName = rawAudioName.replace(/\.(mp3|wav|aac|m4a|ogg|flac)$/i, '');
+
   // 1. 创建音频轨道（整条音频）
   const audioTrack: AudioTractItem = {
     id: getId('audio'),
     type: 'audio',
-    name: preview.audioFileName,
+    name: audioName,
     start: 0,
     end: Math.floor(preview.audioDuration * baseFps),
     frameCount: Math.floor(preview.audioDuration * baseFps),
@@ -54,7 +66,7 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
     offsetR: 0,
     time: preview.audioDuration * 1000,
     format: 'mp3',
-    source: preview.audioUrl,
+    source: preview.audioUrl || '',
     cover: ''
   };
   trackList.push({
@@ -90,36 +102,46 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
 
     // 为字幕轨道设置属性（包含样式信息）
     trackAttrMap[textTrack.id] = {
+      text,
       content: text,
       templateId: 0,
+      fontSize: 40,
+      color: { r: 255, g: 255, b: 255, a: 1 },
+      outlineColor: { r: 0, g: 0, b: 0, a: 0.9 },
+      outlineWidth: 3,
       // 默认标题样式（如果是第一段，应用多行标题样式）
       ...(segmentIndex === 0 ? { titleStyles: getTitleLineStylesForSegment(text) } : {})
     };
 
-    // 图片轨道（每段字幕可能有多张图片）
-    // 优先使用 thumbUrl（后端缩略图接口），避免 COEP 跨域问题
+    // 图片窗口由后端按整条音频规划，不能再按字幕片段重新切分。
     if (segment.images && segment.images.length > 0) {
-      const imgDuration = (segEnd - segStart) / segment.images.length;
       segment.images.forEach((img, imgIndex) => {
-        const imgStart = segStart + imgIndex * imgDuration;
-        const imgEnd = imgStart + imgDuration;
-        const thumbUrl = img.thumbUrl || img.previewThumbUrl || img.imageUrl || '';
+        const fallbackDuration = (segEnd - segStart) / segment.images.length;
+        const imgStart = img.startTime ?? (segStart + imgIndex * fallbackDuration);
+        const imgEnd = img.endTime ?? (imgStart + fallbackDuration);
+        const timelineThumbUrl = withThumbWidth(img.thumbUrl || img.previewThumbUrl || img.imageUrl || '', 100);
+        const previewUrl = withThumbWidth(img.previewThumbUrl || img.thumbUrl || img.imageUrl || '', 1080);
+        const imgStartFrame = Math.max(0, Math.floor(imgStart * baseFps));
+        const imgEndFrame = Math.max(imgStartFrame + 1, Math.floor(imgEnd * baseFps));
+        const imgFrameCount = imgEndFrame - imgStartFrame;
+
+        const uniqueName = `img-${segmentIndex}-${imgIndex}`;
 
         const imageTrack: ImageTractItem = {
           id: getId('image'),
           type: 'image',
-          name: `image-${img.id || imgIndex}`,
-          start: Math.floor(imgStart * baseFps),
-          end: Math.floor(imgEnd * baseFps),
-          frameCount: Math.floor(imgDuration * baseFps),
+          name: uniqueName,
+          start: imgStartFrame,
+          end: imgEndFrame,
+          frameCount: imgFrameCount,
           offsetL: 0,
           offsetR: 0,
-          source: thumbUrl,
+          source: previewUrl,
           format: 'jpg',
           width: preview.videoWidth || 1080,
           height: preview.videoHeight || 1920,
           sourceFrame: 1,
-          cover: thumbUrl
+          cover: timelineThumbUrl
         };
         imageTracks.push(imageTrack);
 
@@ -129,9 +151,10 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
           y: 0,
           scale: 100,
           opacity: 100,
-          imageId: img.id || 0,
+          imageId: img.imageId || img.id || 0,
           imageUrl: img.imageUrl,
-          thumbUrl
+          thumbUrl: timelineThumbUrl,
+          previewUrl
         };
       });
     }
@@ -147,6 +170,23 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
 
   // 图片轨道放在主轨道位置
   if (imageTracks.length > 0) {
+    const totalFrames = Math.floor(preview.audioDuration * baseFps);
+    imageTracks.sort((a, b) => a.start - b.start);
+    if (imageTracks[0].start > 0) {
+      imageTracks[0].start = 0;
+      imageTracks[0].frameCount = imageTracks[0].end - imageTracks[0].start;
+    }
+    imageTracks.forEach((image, index) => {
+      const nextImage = imageTracks[index + 1];
+      if (nextImage && image.end !== nextImage.start) {
+        image.end = nextImage.start;
+        image.frameCount = image.end - image.start;
+      }
+    });
+    const lastImage = imageTracks[imageTracks.length - 1];
+    lastImage.end = totalFrames;
+    lastImage.frameCount = totalFrames - lastImage.start;
+
     trackList.push({
       type: 'image',
       main: true,
@@ -175,7 +215,8 @@ export function fromTimelinePreview(preview: TimelinePreviewResult): {
 export function toConfirmPayload(
   trackList: TrackLineItem[],
   taskUuid: string,
-  videoTitle?: string
+  videoTitle?: string,
+  trackAttrMap: Record<string, Record<string, any>> = {}
 ): {
   taskUuid: string;
   videoTitle?: string;
@@ -212,16 +253,20 @@ export function toConfirmPayload(
           return imgStart < endSeconds && imgEnd > startSeconds;
         })
         .forEach(img => {
-          const imageUrl = (img as any).source || '';
+          const attr = trackAttrMap[img.id] || {};
           segmentImages.push({
-            id: 0, // 图片 ID 在转换时可能丢失，后端会根据 URL 处理
-            imageUrl
+            id: attr.imageId || 0,
+            imageId: attr.imageId || 0,
+            imageUrl: attr.imageUrl || (img as any).source || '',
+            startTime: img.start / baseFps,
+            endTime: img.end / baseFps
           });
         });
     }
 
     // 获取字幕内容（从 trackAttrMap 中获取，如果没有则使用 name）
-    const content = (textTrack as any).content || textTrack.name;
+    const textAttr = trackAttrMap[textTrack.id] || {};
+    const content = textAttr.text || textAttr.content || (textTrack as any).content || textTrack.name;
 
     return {
       index,

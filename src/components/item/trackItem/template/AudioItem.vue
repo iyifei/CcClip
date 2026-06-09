@@ -30,7 +30,6 @@
     }
   });
   const store = usePlayerState();
-  store.ingLoadingCount++;
   const waveStyle = computed(() => {
     const { start, end, offsetL, offsetR, frameCount } = props.trackItem;
     const showFrameCount = end - start;
@@ -45,14 +44,17 @@
   const loading = ref(true);
   const waveFileUrl = ref('');
   async function initAudio() {
-    const { name, source, format, frameCount } = props.trackItem;
-    if (name && source && ffmpeg.isLoaded.value) {
-      const audioName = `${name}.${format}`;
-      // 写文件
-      await ffmpeg.writeFile(ffmpeg.pathConfig.resourcePath, audioName, source);
-      await ffmpeg.genWave(name, frameCount, format);
-      waveFileUrl.value = ffmpeg.getWavePng(name);
+    store.ingLoadingCount++;
+    try {
+      const { name, source, format, frameCount } = props.trackItem;
+      if (name && source && ffmpeg.isLoaded.value) {
+        const audioName = `${name}.${format}`;
+        await ffmpeg.writeFile(ffmpeg.pathConfig.resourcePath, audioName, source);
+        await ffmpeg.genWave(name, frameCount, format);
+        waveFileUrl.value = ffmpeg.getWavePng(name);
+      }
       loading.value = false;
+    } finally {
       store.ingLoadingCount--;
     }
   }

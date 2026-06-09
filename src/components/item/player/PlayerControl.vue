@@ -45,6 +45,7 @@
     }
     store.isPause = false;
     clearInterval(playTimer.value);
+    if (store.audioPlayData.length > 0) return;
     playTimer.value = setInterval(() => {
       store.playStartFrame++;
       if (store.playStartFrame === store.frameCount) {

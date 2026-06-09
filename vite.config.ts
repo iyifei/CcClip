@@ -16,7 +16,7 @@ const OpenSSl = (process.env?.npm_lifecycle_event === 'dev-ssl');
 // https://vitejs.dev/config/
 export default defineConfig({
   server: {
-    host: OpenSSl,
+    host: true,
     https: OpenSSl && {
       key: fs.readFileSync('viteUtil/cert/key.pem'),
       cert: fs.readFileSync('viteUtil/cert/cert.pem')

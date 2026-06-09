@@ -1,4 +1,4 @@
-import { watch, watchPostEffect, ref, reactive, inject, toRaw } from 'vue';
+import { watch, ref, reactive, inject, toRaw } from 'vue';
 import type { Ref } from 'vue';
 import { usePlayerState } from '@/stores/playerState';
 import type FFManager from '@/utils/ffmpegManager';
@@ -15,15 +15,41 @@ export function audioSetup(ffmLoading: Ref<boolean>) {
     });
     const store = usePlayerState();
     const attrStore = useTrackAttrState();
+    let syncAnimationFrame = 0;
     function setTime(playStartFrame: number) {
         const audioTime = Math.max((playStartFrame - audioInfo.start) / 30, 0);
-        audio.value.currentTime = audioTime;
+        if (audio.value && Math.abs(audio.value.currentTime - audioTime) > 0.15) {
+            audio.value.currentTime = audioTime;
+        }
+    }
+    function syncVideoToAudio() {
+        if (!audio.value || store.isPause) return;
+        store.playStartFrame = Math.min(
+            Math.round(audioInfo.start + audio.value.currentTime * 30),
+            store.frameCount
+        );
+        if (audio.value.ended || store.playStartFrame >= store.frameCount) {
+            store.isPause = true;
+            return;
+        }
+        syncAnimationFrame = requestAnimationFrame(syncVideoToAudio);
     }
     const getAudio = debounce(async() => {
-        const { start, end, audioUrl } = await ffmpeg.getAudio(store.audioPlayData, toRaw(attrStore.trackAttrMap));
+        const playableTracks = store.audioPlayData;
+        const directAudio = playableTracks.length === 1 && playableTracks[0].type === 'audio'
+            ? playableTracks[0]
+            : null;
+        const audioResult = directAudio?.source
+            ? { start: directAudio.start, end: directAudio.end, audioUrl: directAudio.source }
+            : await ffmpeg.getAudio(playableTracks, toRaw(attrStore.trackAttrMap));
+        const { start, end, audioUrl } = audioResult;
         audioInfo.start = start;
         audioInfo.end = end;
-        audio.value.src = audioUrl;
+        const resolvedUrl = new URL(audioUrl, window.location.href).href;
+        if (audio.value.src !== resolvedUrl) {
+            audio.value.src = audioUrl;
+            audio.value.preload = 'auto';
+        }
         setTime(store.playStartFrame);
     }, 100);
     // 音频初始化
@@ -38,12 +64,29 @@ export function audioSetup(ffmLoading: Ref<boolean>) {
             audioLoading.value = false;
         }
     }
-    watchPostEffect(initAudio);
+    watch(
+        [ffmpeg.isLoaded, () => store.ingLoadingCount, ffmLoading],
+        initAudio,
+        { immediate: true, flush: 'post' }
+    );
+    watch(() => store.audioPlayData, newData => {
+        if (newData.length > 0 && ffmpeg.isLoaded.value && store.ingLoadingCount === 0) {
+            getAudio();
+        }
+    }, { deep: true });
     watch(() => store.isPause, () => {
         if (store.isPause) {
+            cancelAnimationFrame(syncAnimationFrame);
             audio.value.pause();
         } else {
-            audio.value.play();
+            setTime(store.playStartFrame);
+            audio.value.play().then(() => {
+                cancelAnimationFrame(syncAnimationFrame);
+                syncAnimationFrame = requestAnimationFrame(syncVideoToAudio);
+            })
+.catch(() => {
+                store.isPause = true;
+            });
         }
     });
     // 播放跳转时间

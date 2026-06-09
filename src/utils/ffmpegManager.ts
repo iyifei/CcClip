@@ -21,6 +21,7 @@ class FFManager {
     public playTimeCache = new Map();
     public audioCache:string[] = [];
     public baseCommand = new Command(); // 基础命令
+    private pendingWrites = new Map<string, Promise<void>>(); // 追踪进行中的文件写入
     public pathConfig = {
         resourcePath: '/resource/', // 资源目录，存放视频、音频等大文件
         framePath: '/frame/', // 持久化帧文件，用于轨道
@@ -143,8 +144,18 @@ class FFManager {
     }
     // FS写文件
     async writeFile(filePath: string, fileName: string, fileUrl: string, force = false) {
+        const key = `${filePath}${fileName}`;
+        if (this.pendingWrites.has(key)) {
+            await this.pendingWrites.get(key);
+            return;
+        }
         if (force || !this.fileExist(filePath, fileName)) {
-            await this.ffmpeg.FS('writeFile', `${filePath}${fileName}`, await fetchFile(fileUrl));
+            const writePromise = (async() => {
+                await this.ffmpeg.FS('writeFile', key, await fetchFile(fileUrl));
+                this.pendingWrites.delete(key);
+            })();
+            this.pendingWrites.set(key, writePromise);
+            await writePromise;
         }
         this.logDir(filePath);
     }
@@ -186,8 +197,8 @@ class FFManager {
     // 音频合成
     async mergeAudio(start: number, trackList: TrackItem[], trackAttrMap: Record<string, any>, fileName: string, filePath: string) {
         const { commands } = this.baseCommand.mergeAudio(this.pathConfig, start, trackList, trackAttrMap);
-        if (this.audioCache.indexOf(commands.join('')) > -1) return false;
-        this.audioCache = [commands.join('')];
+        // 清除缓存，确保每次都能重新生成音频
+        this.audioCache = [];
         if (this.fileExist(this.pathConfig.audioPath, fileName)) this.rmFile(filePath); // 重新生成前删除
         return this.run(commands);
     }
@@ -302,8 +313,18 @@ class FFManager {
     getWavePng(sourceName: string) {
         return this.getFileUrl(this.pathConfig.wavePath, sourceName, 'png');
     }
+    /**
+     * 等待所有进行中的文件写入完成
+     */
+    async waitForPendingWrites() {
+        if (this.pendingWrites.size > 0) {
+            await Promise.all(this.pendingWrites.values());
+        }
+    }
     // 获取音频
     async getAudio(trackList: TrackItem[], trackAttrMap: Record<string, any>) {
+        // 等待所有文件写入完成，避免 mergeAudio 读取到未写入的文件
+        await this.waitForPendingWrites();
         const fileName = `audio.mp3`;
         const filePath = `${this.pathConfig.audioPath}/${fileName}`;
         let start = 0;
@@ -312,14 +333,20 @@ class FFManager {
             start = Math.min(trackItem.start, start);
             end = Math.max(trackItem.end, end);
         });
-        await this.mergeAudio(start, trackList, trackAttrMap, fileName, filePath);
+        try {
+            await this.mergeAudio(start, trackList, trackAttrMap, fileName, filePath);
+        } catch (e) {
+            console.error('[FFmpeg] 音频合并失败:', e);
+        }
         if (!this.fileExist(this.pathConfig.audioPath, fileName)) {
+            console.warn('[FFmpeg] 音频文件不存在:', `${this.pathConfig.audioPath}${fileName}`);
             return {
                 start, end,
                 audioUrl: ''
             };
         }
         const audioUrl = this.getFileUrl(this.pathConfig.audioPath, 'audio', 'mp3');
+        console.log('[FFmpeg] 音频 URL:', audioUrl);
         return {
             start, end, audioUrl
         };
